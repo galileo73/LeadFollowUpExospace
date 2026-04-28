@@ -84,24 +84,14 @@ export function parseTemplatesFromText(text: string): { templates: EmailTemplate
 
     const trimmedLine = line.trim();
 
-    // Check if this line is a Subject: line
-    if (trimmedLine.toLowerCase().startsWith('subject:')) {
-      currentSubject = trimmedLine.substring(8).trim();
-      continue;
-    }
-
-    // Skip empty lines
-    if (trimmedLine.length === 0) {
-      continue;
-    }
-
-    // Check if this could be a company header
+    // Check if this could be a company header (must check BEFORE Subject: lines)
     // A company header is a non-empty line where the NEXT non-empty line starts with "Subject:"
     const nextNonEmpty = findNextNonEmptyLine(lines, i + 1);
     const nextLineIsSubject = nextNonEmpty !== null &&
       nextNonEmpty.line.toLowerCase().startsWith('subject:');
 
     const isCompanyHeader =
+      trimmedLine.length > 0 &&
       nextLineIsSubject &&
       !trimmedLine.toLowerCase().startsWith('subject:') &&
       !trimmedLine.startsWith('{') &&
@@ -124,9 +114,22 @@ export function parseTemplatesFromText(text: string): { templates: EmailTemplate
       continue;
     }
 
-    // Add line to current body if we're in a company section with a subject
+    // Check if this line is a Subject: line (only set subject if we have a company)
+    if (trimmedLine.toLowerCase().startsWith('subject:') && currentCompany && !currentSubject) {
+      currentSubject = trimmedLine.substring(8).trim();
+      continue;
+    }
+
+    // When building body content (after we have company AND subject), preserve blank lines
     if (currentCompany && currentSubject) {
+      // We're in a template body - add the line (including empty lines for paragraph breaks)
       currentBody.push(trimmedLine);
+      continue;
+    }
+
+    // Skip empty lines when looking for company headers
+    if (trimmedLine.length === 0) {
+      continue;
     }
   }
 

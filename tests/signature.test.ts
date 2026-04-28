@@ -166,6 +166,60 @@ describe('signature', () => {
       const result = textToHtmlBody('');
       assert.strictEqual(result, '<p></p>');
     });
+
+    it('should preserve multiple paragraph breaks', () => {
+      const text = 'First paragraph.\n\nSecond paragraph.\n\nThird paragraph.';
+      const result = textToHtmlBody(text);
+      assert.strictEqual(result, '<p>First paragraph.</p>\n<p>Second paragraph.</p>\n<p>Third paragraph.</p>');
+    });
+
+    it('should handle multiple blank lines between paragraphs', () => {
+      const text = 'First paragraph.\n\n\nSecond paragraph.';
+      const result = textToHtmlBody(text);
+      assert.strictEqual(result, '<p>First paragraph.</p>\n<p>Second paragraph.</p>');
+    });
+
+    it('should convert real template body with paragraph spacing', () => {
+      // This simulates what comes from the .docx template
+      const text = `Good afternoon Mr. Croisard,
+
+I hope you are well.
+
+I am following up on my previous email.
+
+Thank you again for your time.
+
+Kind regards, Gianluigi Rossi`;
+
+      const result = textToHtmlBody(text);
+
+      // Should have 5 paragraphs
+      const paragraphCount = (result.match(/<p>/g) || []).length;
+      assert.strictEqual(paragraphCount, 5, 'Should have 5 paragraphs');
+
+      // First paragraph
+      assert.ok(result.includes('<p>Good afternoon Mr. Croisard,</p>'));
+
+      // Second paragraph
+      assert.ok(result.includes('<p>I hope you are well.</p>'));
+
+      // Third paragraph
+      assert.ok(result.includes('<p>I am following up on my previous email.</p>'));
+
+      // Fourth paragraph
+      assert.ok(result.includes('<p>Thank you again for your time.</p>'));
+
+      // Fifth paragraph
+      assert.ok(result.includes('<p>Kind regards, Gianluigi Rossi</p>'));
+    });
+
+    it('should handle text with trailing newlines', () => {
+      const text = 'Hello\n\nWorld\n\n';
+      const result = textToHtmlBody(text);
+      // Extra newlines should be trimmed but we get an empty paragraph at the end
+      assert.ok(result.startsWith('<p>Hello</p>'));
+      assert.ok(result.includes('<p>World</p>'));
+    });
   });
 
   describe('appendSignatureToBody', () => {
