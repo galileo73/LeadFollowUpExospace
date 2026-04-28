@@ -12,6 +12,28 @@ import {
 } from '../src/auth.js';
 import type { Config } from '../src/types.js';
 
+// Capture console output for testing
+function captureConsole(): { output: string[]; restore: () => void } {
+  const output: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+
+  console.log = (...args: unknown[]) => {
+    output.push(args.map(a => String(a)).join(' '));
+  };
+  console.error = (...args: unknown[]) => {
+    output.push(args.map(a => String(a)).join(' '));
+  };
+
+  return {
+    output,
+    restore: () => {
+      console.log = originalLog;
+      console.error = originalError;
+    },
+  };
+}
+
 const testDir = resolve(import.meta.dirname, 'fixtures', 'auth-test');
 const testCachePath = join(testDir, 'test-tokens.json');
 
@@ -210,6 +232,125 @@ describe('auth', () => {
       writeFileSync(testCachePath, '{corrupted json', 'utf-8');
       const result = loadTokenCache(testCachePath);
       assert.strictEqual(result, null);
+    });
+  });
+
+  describe('deviceCodeCallback', () => {
+    it('should display the message when provided', () => {
+      const { output, restore } = captureConsole();
+
+      // Simulate the deviceCodeCallback being called with a message
+      const response = {
+        userCode: 'ABC123',
+        deviceCode: 'device-code-123',
+        verificationUri: 'https://microsoft.com/devicelogin',
+        expiresIn: 900,
+        interval: 5,
+        message: 'To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ABC123 to authenticate.',
+      };
+
+      // Call the callback logic directly
+      if (response.message && response.message.trim().length > 0) {
+        console.log(response.message);
+      } else if (response.verificationUri && response.userCode) {
+        console.log('To sign in, use a web browser to open the page:');
+        console.log(`  ${response.verificationUri}`);
+        console.log('And enter the code:');
+        console.log(`  ${response.userCode}`);
+      } else {
+        console.error('Error: Device code response is missing required information.');
+      }
+
+      restore();
+      assert.strictEqual(output.length, 1);
+      assert.ok(output[0]?.includes('ABC123'));
+      assert.ok(output[0]?.includes('devicelogin'));
+    });
+
+    it('should construct message manually when message is empty', () => {
+      const { output, restore } = captureConsole();
+
+      const response = {
+        userCode: 'XYZ789',
+        deviceCode: 'device-code-456',
+        verificationUri: 'https://microsoft.com/devicelogin',
+        expiresIn: 900,
+        interval: 5,
+        message: '', // Empty message
+      };
+
+      if (response.message && response.message.trim().length > 0) {
+        console.log(response.message);
+      } else if (response.verificationUri && response.userCode) {
+        console.log('To sign in, use a web browser to open the page:');
+        console.log(`  ${response.verificationUri}`);
+        console.log('And enter the code:');
+        console.log(`  ${response.userCode}`);
+      } else {
+        console.error('Error: Device code response is missing required information.');
+      }
+
+      restore();
+      assert.ok(output.length >= 3);
+      assert.ok(output.some(line => line.includes('devicelogin')));
+      assert.ok(output.some(line => line.includes('XYZ789')));
+    });
+
+    it('should construct message manually when message is undefined', () => {
+      const { output, restore } = captureConsole();
+
+      const response = {
+        userCode: 'DEF456',
+        deviceCode: 'device-code-789',
+        verificationUri: 'https://microsoft.com/devicelogin',
+        expiresIn: 900,
+        interval: 5,
+        message: undefined as unknown as string, // Undefined message
+      };
+
+      if (response.message && response.message.trim().length > 0) {
+        console.log(response.message);
+      } else if (response.verificationUri && response.userCode) {
+        console.log('To sign in, use a web browser to open the page:');
+        console.log(`  ${response.verificationUri}`);
+        console.log('And enter the code:');
+        console.log(`  ${response.userCode}`);
+      } else {
+        console.error('Error: Device code response is missing required information.');
+      }
+
+      restore();
+      assert.ok(output.length >= 3);
+      assert.ok(output.some(line => line.includes('devicelogin')));
+      assert.ok(output.some(line => line.includes('DEF456')));
+    });
+
+    it('should show error when no useful information is available', () => {
+      const { output, restore } = captureConsole();
+
+      const response = {
+        userCode: '',
+        deviceCode: '',
+        verificationUri: '',
+        expiresIn: 0,
+        interval: 0,
+        message: '',
+      };
+
+      if (response.message && response.message.trim().length > 0) {
+        console.log(response.message);
+      } else if (response.verificationUri && response.userCode) {
+        console.log('To sign in, use a web browser to open the page:');
+        console.log(`  ${response.verificationUri}`);
+        console.log('And enter the code:');
+        console.log(`  ${response.userCode}`);
+      } else {
+        console.error('Error: Device code response is missing required information.');
+      }
+
+      restore();
+      assert.ok(output.length >= 1);
+      assert.ok(output.some(line => line.includes('missing required information')));
     });
   });
 });

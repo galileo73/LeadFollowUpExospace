@@ -132,8 +132,28 @@ export async function authenticateWithDeviceCode(
 
   const deviceCodeRequest = {
     scopes: [...config.scopes],
-    deviceCodeCallback: (response: { userCode: string; message: string }) => {
-      console.log(response.message);
+    deviceCodeCallback: (response: {
+      userCode: string;
+      deviceCode: string;
+      verificationUri: string;
+      expiresIn: number;
+      interval: number;
+      message: string;
+    }) => {
+      // Use the provided message if available, otherwise construct it manually
+      if (response.message && response.message.trim().length > 0) {
+        console.log(response.message);
+      } else if (response.verificationUri && response.userCode) {
+        // Fallback: construct the message manually
+        console.log('To sign in, use a web browser to open the page:');
+        console.log(`  ${response.verificationUri}`);
+        console.log('And enter the code:');
+        console.log(`  ${response.userCode}`);
+      } else {
+        // No useful information available - this shouldn't happen
+        console.error('Error: Device code response is missing required information.');
+        console.error('Please check your network connection and try again.');
+      }
     },
   };
 
