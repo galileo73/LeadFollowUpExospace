@@ -1,0 +1,6 @@
+Lead ID;Company;Contact Name;Role;Email;Phone;Country;Segment;Service Line;Source;Lead Score;Status;Last Contact Date;Next Follow-up Date;Days to Follow-up;Owner;Need / Pain;Next Action;Offer Value (€);Probability %;Weighted Pipeline (€);Meeting Booked;Proposal Sent;Last Message / Notes;Website;LinkedIn;Priority
+L-001;ClearSpace;Nicolas Croisard;CEO;nicolas.croisard@clearspace.today;;Switzerland;Space;Engineering;Direct;70;Contacted;09/04/2026;15/04/2026;-9;Gianluigi Rossi;Need for systems engineering;Send follow-up;;20%;;No;No;Intro sent;https://clearspace.today;;A
+L-002;Reflex Aerospace;Mr. Motzki;CTO;motzki@reflexaerospace.com;;Germany;Space;Engineering;Direct;80;Contacted;10/04/2026;20/04/2026;-4;Gianluigi Rossi;Validation support;Follow up;;30%;;No;No;Intro sent;https://reflexaerospace.com;;B
+L-003;NoEmail Corp;John Doe;Manager;;;USA;Tech;Consulting;Web;50;New;01/04/2026;25/04/2026;1;Gianluigi Rossi;Consulting;Call;;;No;No;New lead;;;
+L-004;Future Lead;Jane Smith;Director;jane@future.com;;UK;Space;Engineering;Referral;60;New;01/05/2026;15/05/2026;21;Gianluigi Rossi;Potential project;Wait;;10%;;No;No;Referred;;;
+L-005;Closed Corp;Bob Wilson;CEO;bob@closed.com;;France;Defence;Systems;Event;40;Closed Won;01/03/2026;01/03/2026;54;Gianluigi Rossi;Won contract;None;;100%;;Yes;Yes;Contract signed;;;
