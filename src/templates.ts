@@ -46,6 +46,23 @@ Kind regards,
 };
 
 /**
+ * Find the next non-empty line starting from a given index
+ * Returns the trimmed line and its index, or null if none found
+ */
+function findNextNonEmptyLine(lines: readonly string[], startIndex: number): { line: string; index: number } | null {
+  for (let i = startIndex; i < lines.length; i++) {
+    const line = lines[i];
+    if (line !== undefined) {
+      const trimmed = line.trim();
+      if (trimmed.length > 0) {
+        return { line: trimmed, index: i };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Extract templates from .docx content
  * Expected format: Company names as headers followed by Subject: and body
  */
@@ -62,23 +79,35 @@ export function parseTemplatesFromText(text: string): { templates: EmailTemplate
   let currentBody: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]?.trim() ?? '';
-    const nextLine = lines[i + 1]?.trim() ?? '';
+    const line = lines[i];
+    if (line === undefined) continue;
+
+    const trimmedLine = line.trim();
 
     // Check if this line is a Subject: line
-    if (line.toLowerCase().startsWith('subject:')) {
-      currentSubject = line.substring(8).trim();
+    if (trimmedLine.toLowerCase().startsWith('subject:')) {
+      currentSubject = trimmedLine.substring(8).trim();
+      continue;
+    }
+
+    // Skip empty lines
+    if (trimmedLine.length === 0) {
       continue;
     }
 
     // Check if this could be a company header
-    // A company header is a non-empty line that's not a Subject:, followed by a Subject: line
-    const isPotentialCompanyHeader =
-      line.length > 0 &&
-      !line.toLowerCase().startsWith('subject:') &&
-      (nextLine.toLowerCase().startsWith('subject:') || currentSubject === null);
+    // A company header is a non-empty line where the NEXT non-empty line starts with "Subject:"
+    const nextNonEmpty = findNextNonEmptyLine(lines, i + 1);
+    const nextLineIsSubject = nextNonEmpty !== null &&
+      nextNonEmpty.line.toLowerCase().startsWith('subject:');
 
-    if (isPotentialCompanyHeader && !line.startsWith('{') && !line.startsWith('-')) {
+    const isCompanyHeader =
+      nextLineIsSubject &&
+      !trimmedLine.toLowerCase().startsWith('subject:') &&
+      !trimmedLine.startsWith('{') &&
+      !trimmedLine.startsWith('-');
+
+    if (isCompanyHeader) {
       // Save previous template if exists
       if (currentCompany && currentSubject) {
         templates.push({
@@ -89,15 +118,15 @@ export function parseTemplatesFromText(text: string): { templates: EmailTemplate
       }
 
       // Start new company section
-      currentCompany = line;
+      currentCompany = trimmedLine;
       currentSubject = null;
       currentBody = [];
       continue;
     }
 
-    // Add line to current body if we're in a company section
+    // Add line to current body if we're in a company section with a subject
     if (currentCompany && currentSubject) {
-      currentBody.push(line);
+      currentBody.push(trimmedLine);
     }
   }
 

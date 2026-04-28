@@ -1,5 +1,9 @@
+Template Answer To Leads
+
 ClearSpace
-Subject: Following up on ClearSpace inquiry
+
+Subject: Following up on ExoSpace introduction
+
 Good afternoon {ContactName},
 
 Thank you for your interest in ExoSpace Engineering & Consulting.
@@ -11,8 +15,11 @@ Looking forward to hearing from you.
 Best regards,
 {OwnerName}
 
+
 Reflex Aerospace
+
 Subject: Reflex Aerospace - ExoSpace Partnership
+
 Dear {ContactName},
 
 I hope this message finds you well.
@@ -24,8 +31,11 @@ We have extensive experience in systems engineering and would welcome the opport
 Kind regards,
 {OwnerName}
 
+
 Helsing
+
 Subject: Helsing - Engineering Support Inquiry
+
 Good afternoon {ContactName},
 
 Following up on our previous discussion regarding engineering support services.

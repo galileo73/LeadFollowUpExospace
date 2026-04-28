@@ -141,6 +141,84 @@ Best,
       const { templates } = parseTemplatesFromText('');
       assert.strictEqual(templates.length, 0);
     });
+
+    it('should ignore document title and parse exactly 3 templates', () => {
+      // This matches the actual .docx structure
+      const content = `Template Answer To Leads
+
+ClearSpace
+
+Subject: Following up on ExoSpace introduction
+
+Good afternoon Mr. Croisard,
+
+I hope you are well.
+
+Kind regards, Gianluigi Rossi
+
+
+Reflex Aerospace
+
+Subject: Following up on ExoSpace introduction
+
+Good afternoon Mr. Motzki,
+
+I hope you are well.
+
+Kind regards, Gianluigi Rossi
+
+
+Helsing
+
+Subject: Following up on ExoSpace introduction
+
+Good afternoon Mr. Rogerson,
+
+I hope you are well.
+
+Kind regards, Gianluigi Rossi`;
+
+      const { templates } = parseTemplatesFromText(content);
+
+      assert.strictEqual(templates.length, 3, 'Should parse exactly 3 templates');
+
+      // Verify company names
+      assert.strictEqual(templates[0]?.company, 'ClearSpace');
+      assert.strictEqual(templates[1]?.company, 'Reflex Aerospace');
+      assert.strictEqual(templates[2]?.company, 'Helsing');
+
+      // Verify "Template Answer To Leads" is NOT a company
+      const companies = templates.map(t => t.company);
+      assert.ok(!companies.includes('Template Answer To Leads'), 'Document title should not be parsed as a company');
+    });
+
+    it('should handle company names with spaces', () => {
+      const content = `Reflex Aerospace
+
+Subject: Test subject
+
+Body text here`;
+
+      const { templates } = parseTemplatesFromText(content);
+
+      assert.strictEqual(templates.length, 1);
+      assert.strictEqual(templates[0]?.company, 'Reflex Aerospace');
+    });
+
+    it('should handle blank lines between company and subject', () => {
+      const content = `ClearSpace
+
+
+Subject: Test subject
+
+Body text`;
+
+      const { templates } = parseTemplatesFromText(content);
+
+      assert.strictEqual(templates.length, 1);
+      assert.strictEqual(templates[0]?.company, 'ClearSpace');
+      assert.strictEqual(templates[0]?.subject, 'Test subject');
+    });
   });
 
   describe('findTemplate', () => {
