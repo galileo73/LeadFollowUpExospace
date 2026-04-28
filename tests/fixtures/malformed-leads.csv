@@ -1,0 +1,3 @@
+Lead ID;Company;Contact Name;Role;Email;Phone;Country;Segment;Service Line;Source;Lead Score;Status;Last Contact Date;Next Follow-up Date;Days to Follow-up;Owner;Need / Pain;Next Action;Offer Value (€);Probability %;Weighted Pipeline (€);Meeting Booked;Proposal Sent;Last Message / Notes;Website;LinkedIn;Priority
+L-101;Good Lead;Good Person;Manager;good@example.com;;USA;Tech;Consulting;Web;50;New;01/04/2026;28/04/2026;0;Gianluigi Rossi;Good lead;Call;;;No;No;Good;;;
+L-102;Another Good;Another Person;CTO;another@example.com;;Germany;Space;Engineering;Direct;70;Contacted;10/04/2026;20/04/2026;-2;Gianluigi Rossi;Another good;Follow up;;20%;;No;No;Good;;;
