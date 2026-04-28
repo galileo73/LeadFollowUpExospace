@@ -4,7 +4,7 @@
 
 **Goal:** Build a Node.js + TypeScript CLI agent that creates Outlook draft emails for leads due for follow-up, using Microsoft Graph API and MSAL Device Code Flow authentication.
 
-**Architecture:** Minimal modular design with 7 files: types.ts (shared interfaces), auth.ts (MSAL), leads.ts (CSV parsing), templates.ts (.docx parsing), drafts.ts (Graph API), log.ts (CSV logging), index.ts (orchestrator). Dry-run confirmation workflow before any API calls.
+**Architecture:** Minimal modular design with 8 files: types.ts (shared interfaces), auth.ts (MSAL), leads.ts (CSV parsing), templates.ts (.docx parsing), signature.ts (HTML signature with inline logo), drafts.ts (Graph API), log.ts (CSV logging), index.ts (orchestrator). Dry-run confirmation workflow before any API calls.
 
 **Tech Stack:** Node.js, TypeScript, @azure/msal-node, @microsoft/microsoft-graph-client, csv-parse, mammoth, dotenv
 
@@ -18,6 +18,7 @@
 | Phase 2 | CSV parsing & lead filtering | Can load and filter leads from CSV |
 | Phase 3 | Template parsing | Can extract templates from .docx |
 | Phase 4 | Logging module | Can write to CSV log file |
+| Phase 4.5 | Email signature support | Can add HTML signature with inline logo |
 | Phase 5 | Authentication | Can authenticate via Device Code Flow |
 | Phase 6 | Draft creation | Can create Outlook drafts via Graph API |
 | Phase 7 | Orchestrator + CLI | Full dry-run → confirm → draft workflow |
@@ -34,11 +35,13 @@ src/
 ├── auth.ts       # MSAL Device Code Flow + token cache
 ├── leads.ts      # CSV parsing, due lead filtering
 ├── templates.ts  # .docx parsing, company matching
+├── signature.ts  # HTML signature with inline logo
 ├── drafts.ts     # Microsoft Graph draft creation
 └── log.ts        # CSV logging
 tests/
 ├── leads.test.ts
 ├── templates.test.ts
+├── signature.test.ts
 ├── log.test.ts
 └── fixtures/
     └── sample-leads.csv
@@ -1506,6 +1509,262 @@ EOF
 
 ---
 
+## Phase 4.5: Email Signature Support
+
+### Task 4.5.1: Write signature.test.ts
+
+**Files:**
+- Create: `tests/signature.test.ts`
+
+- [ ] **Step 1: Write the test file**
+
+Tests should cover:
+- Disabled signature returns null
+- Missing signature file warns and continues
+- Loading signature HTML from file
+- Appending signature to email body
+- Converting text to HTML body
+- Loading inline logo as base64 attachment
+- Missing logo fallback to text signature only
+
+- [ ] **Step 2: Commit test file**
+
+```bash
+git add tests/signature.test.ts
+git commit -m "$(cat <<'EOF'
+test: add signature module tests
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 4.5.2: Implement signature.ts
+
+**Files:**
+- Create: `src/signature.ts`
+
+- [ ] **Step 1: Write signature.ts implementation**
+
+```typescript
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
+
+// Inline attachment for Microsoft Graph API
+export interface InlineAttachment {
+  readonly '@odata.type': '#microsoft.graph.fileAttachment';
+  readonly name: string;
+  readonly contentType: string;
+  readonly isInline: boolean;
+  readonly contentId: string;
+  readonly contentBytes: string;
+}
+
+// Signature configuration
+export interface SignatureConfig {
+  readonly enabled: boolean;
+  readonly htmlPath: string;
+  readonly logoPath: string;
+  readonly logoContentId: string;
+}
+
+// Check if signature is enabled
+export function isSignatureEnabled(envValue: string | undefined): boolean {
+  if (envValue === undefined || envValue === '') {
+    return false;
+  }
+  const normalized = envValue.toLowerCase().trim();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+}
+
+// Load signature HTML from file, replace local image paths with CID
+export async function loadSignatureHtml(filePath: string): Promise<string | null> {
+  try {
+    const absolutePath = resolve(process.cwd(), filePath);
+    if (!existsSync(absolutePath)) {
+      console.warn(`Warning: Signature HTML file not found: ${filePath}`);
+      return null;
+    }
+    const content = readFileSync(absolutePath, 'utf-8');
+    // Replace local image paths with CID references
+    return content.replace(/src=["']Exospace_file\/image001\.png["']/gi, 'src="cid:exospace-logo"');
+  } catch (error) {
+    console.warn(`Warning: Failed to load signature HTML: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return null;
+  }
+}
+
+// Convert plain text to HTML body
+export function textToHtmlBody(text: string): string {
+  if (!text) return '<p></p>';
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const paragraphs = escaped.split(/\n\n+/);
+  return paragraphs.map(p => `<p>${p.replace(/\n/g, '<br>\n')}</p>`).join('\n');
+}
+
+// Append signature to email body
+export function appendSignatureToBody(bodyHtml: string, signatureHtml: string | null): string {
+  if (!signatureHtml) return bodyHtml;
+  return `${bodyHtml}\n<br><br>\n${signatureHtml}`;
+}
+
+// Load logo as inline attachment for Microsoft Graph
+export async function loadInlineLogoAttachment(
+  logoPath: string,
+  contentId: string
+): Promise<InlineAttachment | null> {
+  try {
+    const absolutePath = resolve(process.cwd(), logoPath);
+    if (!existsSync(absolutePath)) {
+      console.warn(`Warning: Logo file not found: ${logoPath}`);
+      return null;
+    }
+    const buffer = readFileSync(absolutePath);
+    const base64 = buffer.toString('base64');
+    const ext = logoPath.toLowerCase().split('.').pop();
+    const contentType = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
+    return {
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: 'exospace-logo.png',
+      contentType,
+      isInline: true,
+      contentId,
+      contentBytes: base64,
+    };
+  } catch (error) {
+    console.warn(`Warning: Failed to load logo: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return null;
+  }
+}
+
+// Get signature configuration from environment
+export function getSignatureConfig(): SignatureConfig {
+  return {
+    enabled: isSignatureEnabled(process.env.SIGNATURE_ENABLED),
+    htmlPath: process.env.SIGNATURE_HTML_PATH || 'assets/signature/exospace-signature.html',
+    logoPath: process.env.SIGNATURE_LOGO_PATH || 'assets/signature/Exospace_file/image001.png',
+    logoContentId: process.env.SIGNATURE_LOGO_CONTENT_ID || 'exospace-logo',
+  };
+}
+
+// Load signature and logo
+export async function loadSignature(config: SignatureConfig): Promise<{
+  signatureHtml: string | null;
+  logoAttachment: InlineAttachment | null;
+  warnings: string[];
+}> {
+  const warnings: string[] = [];
+  
+  if (!config.enabled) {
+    return { signatureHtml: null, logoAttachment: null, warnings: [] };
+  }
+  
+  let signatureHtml: string | null = null;
+  let logoAttachment: InlineAttachment | null = null;
+  
+  try {
+    signatureHtml = await loadSignatureHtml(config.htmlPath);
+    if (!signatureHtml) {
+      warnings.push(`Signature HTML file not found: ${config.htmlPath}`);
+    }
+  } catch (error) {
+    warnings.push(`Failed to load signature HTML: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+  
+  try {
+    logoAttachment = await loadInlineLogoAttachment(config.logoPath, config.logoContentId);
+    if (!logoAttachment) {
+      warnings.push(`Logo file not found: ${config.logoPath}`);
+    }
+  } catch (error) {
+    warnings.push(`Failed to load logo: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+  
+  return { signatureHtml, logoAttachment, warnings };
+}
+
+// Prepare email body with signature
+export async function prepareEmailBody(
+  textBody: string,
+  signatureConfig: SignatureConfig
+): Promise<{ htmlBody: string; attachments: InlineAttachment[]; warnings: string[] }> {
+  const attachments: InlineAttachment[] = [];
+  const warnings: string[] = [];
+  
+  let htmlBody = textToHtmlBody(textBody);
+  
+  if (signatureConfig.enabled) {
+    const { signatureHtml, logoAttachment, warnings: sigWarnings } = await loadSignature(signatureConfig);
+    warnings.push(...sigWarnings);
+    
+    if (signatureHtml) {
+      htmlBody = appendSignatureToBody(htmlBody, signatureHtml);
+      if (logoAttachment) {
+        attachments.push(logoAttachment);
+      }
+    }
+  }
+  
+  return { htmlBody, attachments, warnings };
+}
+```
+
+- [ ] **Step 2: Run tests to verify they pass**
+
+Run: `npm test`
+
+Expected: All signature tests PASS
+
+- [ ] **Step 3: Commit signature.ts**
+
+```bash
+git add src/signature.ts
+git commit -m "$(cat <<'EOF'
+feat: implement email signature support with inline logo
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 4.5.3: Update .env.example
+
+**Files:**
+- Modify: `.env.example`
+
+- [ ] **Step 1: Add signature configuration variables**
+
+Add to `.env.example`:
+
+```bash
+# Email signature (optional, disabled by default)
+SIGNATURE_ENABLED=false
+SIGNATURE_HTML_PATH=assets/signature/exospace-signature.html
+SIGNATURE_LOGO_PATH=assets/signature/Exospace_file/image001.png
+SIGNATURE_LOGO_CONTENT_ID=exospace-logo
+```
+
+- [ ] **Step 2: Commit .env.example**
+
+```bash
+git add .env.example
+git commit -m "$(cat <<'EOF'
+feat: add signature configuration to .env.example
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ## Phase 5: Authentication
 
 ### Task 5.1: Write auth.test.ts
@@ -2524,8 +2783,9 @@ This is a safe checkpoint before adding external dependencies (auth, Graph API).
 | Phase 2 | 2.1-2.3 | sample-leads.csv, leads.test.ts, leads.ts |
 | Phase 3 | 3.1-3.2 | templates.test.ts, templates.ts |
 | Phase 4 | 4.1-4.2 | log.test.ts, log.ts |
+| Phase 4.5 | 4.5.1-4.5.3 | signature.test.ts, signature.ts, .env.example update |
 | Phase 5 | 5.1-5.2 | auth.test.ts, auth.ts |
 | Phase 6 | 6.1-6.2 | drafts.test.ts, drafts.ts |
 | Phase 7 | 7.1-7.3 | display.ts, index.ts |
 
-**Total: 16 tasks, 14 source files, 5 test files**
+**Total: 19 tasks, 15 source files, 6 test files**

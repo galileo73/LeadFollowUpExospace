@@ -20,7 +20,12 @@ logs/
 
 # OS
 .DS_Store
-Thumbs.db5
+Thumbs.db
 
-#Claude
+# Office temporary files
+~$*.xlsx
+~$*.xls
+~$*.docx
+
+# Claude
 Claude.md

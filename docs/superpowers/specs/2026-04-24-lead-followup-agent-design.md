@@ -367,6 +367,69 @@ timestamp,run_id,lead_id,company,email,subject,draft_id,status,template_type,err
 - If logging fails: warning, don't crash run
 - Never log access tokens or sensitive auth data
 
+### signature.ts
+
+**Responsibilities**:
+- Load HTML signature from file
+- Convert local image paths to CID (Content-ID) references for inline images
+- Load logo as base64 attachment for Microsoft Graph inline attachments
+- Append signature to email body
+- Convert plain text to HTML body
+
+**Functions**:
+```typescript
+function isSignatureEnabled(envValue: string | undefined): boolean;
+async function loadSignatureHtml(filePath: string): Promise<string | null>;
+function textToHtmlBody(text: string): string;
+function appendSignatureToBody(bodyHtml: string, signatureHtml: string | null): string;
+async function loadInlineLogoAttachment(logoPath: string, contentId: string): Promise<InlineAttachment | null>;
+function getSignatureConfig(): SignatureConfig;
+async function loadSignature(config: SignatureConfig): Promise<SignatureResult>;
+async function prepareEmailBody(textBody: string, config: SignatureConfig): Promise<PrepareResult>;
+```
+
+**Types**:
+```typescript
+interface SignatureConfig {
+  enabled: boolean;
+  htmlPath: string;
+  logoPath: string;
+  logoContentId: string;
+}
+
+interface InlineAttachment {
+  '@odata.type': '#microsoft.graph.fileAttachment';
+  name: string;
+  contentType: string;
+  isInline: boolean;
+  contentId: string;
+  contentBytes: string;
+}
+```
+
+**Signature Handling**:
+- If `SIGNATURE_ENABLED=false` (default), skip signature entirely
+- Load HTML signature from configured path
+- Replace local image paths (e.g., `Exospace_file/image001.png`) with CID references (`cid:exospace-logo`)
+- Load logo as base64 for inline attachment via Microsoft Graph API
+
+**Image CID Conversion**:
+- Original: `src="Exospace_file/image001.png"`
+- Converted: `src="cid:exospace-logo"`
+- The inline attachment includes `contentId: "exospace-logo"` for linking
+
+**Error Handling**:
+- Signature disabled: continue without signature
+- Signature file missing: warn and continue with text-only email
+- Logo file missing: warn and continue with text signature (no inline logo)
+- Never crash the run due to signature issues
+
+**Environment Variables**:
+- `SIGNATURE_ENABLED` - Set to `true` to enable (default: `false`)
+- `SIGNATURE_HTML_PATH` - Path to signature HTML file
+- `SIGNATURE_LOGO_PATH` - Path to logo image file
+- `SIGNATURE_LOGO_CONTENT_ID` - CID for inline image (default: `exospace-logo`)
+
 ### index.ts (Orchestrator)
 
 **Execution Flow**:
