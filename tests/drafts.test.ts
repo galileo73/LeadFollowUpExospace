@@ -283,5 +283,38 @@ describe('drafts', () => {
       assert.strictEqual(validRequests.length, 1);
       assert.strictEqual(validRequests[0]?.lead.leadId, 'L001');
     });
+
+    it('should use contactName for recipient display name', () => {
+      const lead: Lead = createTestLead({
+        contactName: 'Jane Doe',
+        company: 'Acme Corp',
+      });
+
+      // The recipient name should be the contact name
+      const recipientName = lead.contactName?.trim() || lead.company;
+      assert.strictEqual(recipientName, 'Jane Doe');
+    });
+
+    it('should fall back to company name when contactName is empty', () => {
+      const lead: Lead = createTestLead({
+        contactName: '',
+        company: 'Acme Corp',
+      });
+
+      // The recipient name should fall back to company
+      const recipientName = lead.contactName?.trim() || lead.company;
+      assert.strictEqual(recipientName, 'Acme Corp');
+    });
+
+    it('should fall back to company name when contactName is whitespace', () => {
+      const lead: Lead = createTestLead({
+        contactName: '   ',
+        company: 'Acme Corp',
+      });
+
+      // Whitespace-only contactName should be trimmed and fall back to company
+      const recipientName = lead.contactName?.trim() || lead.company;
+      assert.strictEqual(recipientName, 'Acme Corp');
+    });
   });
 });

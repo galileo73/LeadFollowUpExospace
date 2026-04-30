@@ -366,6 +366,34 @@ Body text`;
       assert.ok(populated.body.includes('Good afternoon'));
       assert.ok(!populated.body.includes('Good afternoon ,'));
     });
+
+    it('should preserve newlines and paragraph structure', () => {
+      const template: EmailTemplate = {
+        company: 'Test',
+        subject: 'Test subject',
+        body: `Good afternoon {ContactName},
+
+I hope you are well.
+
+I am following up on my previous email.
+
+Kind regards,
+{OwnerName}`,
+      };
+      const populated = populateTemplate(template, sampleLead);
+
+      // Body should contain newlines (not collapsed to single line)
+      assert.ok(populated.body.includes('\n'), 'Body should contain newlines');
+
+      // Body should contain multiple paragraphs separated by blank lines
+      const paragraphCount = (populated.body.match(/\n\n/g) || []).length;
+      assert.ok(paragraphCount >= 3, 'Body should have multiple paragraph breaks');
+
+      // Verify structure is preserved
+      assert.ok(populated.body.includes('Good afternoon Nicolas Croisard,'));
+      assert.ok(populated.body.includes('I hope you are well.'));
+      assert.ok(populated.body.includes('Kind regards,\nGianluigi Rossi'));
+    });
   });
 
   describe('getTemplateForLead', () => {

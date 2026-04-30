@@ -38,6 +38,7 @@ interface MessageRequestBody {
   toRecipients: Array<{
     emailAddress: {
       address: string;
+      name?: string;
     };
   }>;
   attachments?: Array<{
@@ -159,7 +160,8 @@ export async function createDraft(
   toEmail: string,
   subject: string,
   htmlBody: string,
-  attachments?: readonly InlineAttachment[]
+  attachments?: readonly InlineAttachment[],
+  recipientName?: string
 ): Promise<string> {
   // Validate email before API call
   if (!validateEmail(toEmail)) {
@@ -177,6 +179,7 @@ export async function createDraft(
       {
         emailAddress: {
           address: toEmail.trim(),
+          ...(recipientName ? { name: recipientName } : {}),
         },
       },
     ],
@@ -241,12 +244,16 @@ export async function createDraftsBatch(
         throw new Error('Email validation passed but email is null');
       }
 
+      // Use contactName if available, otherwise fall back to company name
+      const recipientName = lead.contactName?.trim() || lead.company;
+
       const draftId = await createDraft(
         client,
         email,
         subject,
         htmlBody,
-        attachments
+        attachments,
+        recipientName
       );
 
       results.push({

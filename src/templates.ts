@@ -267,8 +267,8 @@ export function populateTemplate(template: EmailTemplate, lead: Lead): EmailTemp
     .replace(/{Company}/g, companyName)
     .replace(/{OwnerName}/g, ownerName);
 
-  // Clean up any double spaces or spaces before commas
-  body = body.replace(/\s+/g, ' ').replace(/\s+,/g, ',');
+  // Clean up spaces before commas (preserve newlines for paragraph structure)
+  body = body.replace(/\s+,/g, ',');
 
   // Populate subject
   let subject = template.subject;
