@@ -42,8 +42,11 @@ const testConfig: Config = {
   tenantId: 'test-tenant-id',
   clientId: 'test-client-id',
   scopes: ['Mail.ReadWrite', 'offline_access'],
+  mode: 'follow-up',
   leadsCsvPath: 'lead_db/leads.csv',
   templatesDocxPath: 'lead_db/templates.docx',
+  outreachTemplatePath: 'lead_db/outreach_template.txt',
+  presentationPath: 'lead_db/presentation.pptx',
   logPath: 'logs/drafts.csv',
   tokenCachePath: testCachePath,
 };

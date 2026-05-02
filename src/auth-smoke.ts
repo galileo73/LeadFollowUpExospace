@@ -145,8 +145,11 @@ async function main(): Promise<void> {
     tenantId: config.tenantId,
     clientId: config.clientId!,
     scopes: config.scopes,
+    mode: 'follow-up',
     leadsCsvPath: '',
     templatesDocxPath: '',
+    outreachTemplatePath: '',
+    presentationPath: '',
     logPath: '',
     tokenCachePath: config.tokenCachePath,
   });
@@ -157,8 +160,11 @@ async function main(): Promise<void> {
       tenantId: config.tenantId,
       clientId: config.clientId!,
       scopes: config.scopes,
+      mode: 'follow-up',
       leadsCsvPath: '',
       templatesDocxPath: '',
+      outreachTemplatePath: '',
+      presentationPath: '',
       logPath: '',
       tokenCachePath: config.tokenCachePath,
     });

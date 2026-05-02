@@ -1,3 +1,6 @@
+// Agent mode: follow-up (existing workflow) or outreach (first contact with presentation)
+export type Mode = 'follow-up' | 'outreach';
+
 // Lead data structure from CSV
 export interface Lead {
   readonly leadId: string;
@@ -41,6 +44,9 @@ export interface DraftLogEntry {
   readonly draftId: string;
   readonly status: DraftStatus;
   readonly templateType: TemplateType;
+  readonly mode: Mode;
+  readonly attachmentName?: string;
+  readonly attachmentSize?: number;
   readonly error: string;
 }
 
@@ -48,11 +54,17 @@ export type DraftStatus =
   | 'created'
   | 'skipped_no_template'
   | 'skipped_no_email'
+  | 'skipped_invalid_email'
+  | 'skipped_inactive_status'
+  | 'skipped_not_due'
+  | 'skipped_attachment_too_large'
+  | 'skipped_presentation_not_found'
   | 'failed';
 
 export type TemplateType =
   | 'company_specific'
   | 'generic_fallback'
+  | 'outreach'
   | 'none';
 
 // Due lead check result
@@ -83,7 +95,7 @@ export interface DraftResult {
   readonly error?: string;
 }
 
-// Active lead statuses
+// Active lead statuses for follow-up mode (all active leads)
 export const ACTIVE_STATUSES: readonly string[] = [
   'New',
   'Contacted',
@@ -91,13 +103,25 @@ export const ACTIVE_STATUSES: readonly string[] = [
   'Qualified',
 ] as const;
 
+// Active lead statuses for outreach mode (new leads that haven't been contacted yet)
+export const OUTREACH_STATUSES: readonly string[] = [
+  'New',
+  'Qualified',
+] as const;
+
+// Maximum attachment size (3 MB - Graph API limit for simple upload)
+export const MAX_ATTACHMENT_SIZE_BYTES = 3 * 1024 * 1024;
+
 // Configuration from environment
 export interface Config {
   readonly tenantId: string;
   readonly clientId: string;
   readonly scopes: readonly string[];
+  readonly mode: Mode;
   readonly leadsCsvPath: string;
   readonly templatesDocxPath: string;
+  readonly outreachTemplatePath: string;
+  readonly presentationPath: string;
   readonly logPath: string;
   readonly tokenCachePath: string;
 }

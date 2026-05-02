@@ -1,7 +1,7 @@
 import { config } from 'dotenv';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import type { Config } from './types.ts';
+import type { Config, Mode } from './types.js';
 
 // Load .env file
 config();
@@ -30,7 +30,7 @@ function getEnvArray(name: string, defaultValue: string): readonly string[] {
   return value.split(',').map(s => s.trim());
 }
 
-export function loadConfig(): Config {
+export function loadConfig(mode: Mode = 'follow-up'): Config {
   // Check for .env file
   const envPath = resolve(process.cwd(), '.env');
   if (!existsSync(envPath)) {
@@ -47,8 +47,11 @@ export function loadConfig(): Config {
     tenantId: getEnv('AZURE_TENANT_ID'),
     clientId: getEnv('AZURE_CLIENT_ID'),
     scopes: getEnvArray('GRAPH_SCOPES', 'Mail.ReadWrite,offline_access'),
+    mode,
     leadsCsvPath: getEnv('LEADS_CSV_PATH', 'lead_db/Exospace_lead_tracker_v1.1.csv'),
     templatesDocxPath: getEnv('TEMPLATES_DOCX_PATH', 'lead_db/template_answer_leads.docx'),
+    outreachTemplatePath: getEnv('OUTREACH_TEMPLATE_PATH', 'lead_db/outreach_template.txt'),
+    presentationPath: getEnv('PRESENTATION_PATH', 'lead_db/ExoSpace_company_presentation.pptx'),
     logPath: getEnv('LOG_PATH', 'logs/drafts.csv'),
     tokenCachePath: getEnv('TOKEN_CACHE_PATH', '.cache/msal-tokens.json'),
   };

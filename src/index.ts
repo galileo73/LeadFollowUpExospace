@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import * as readline from 'readline';
+import { parseCliArgs, displayHelp, displayModeInfo } from './cli.js';
 import { loadLeads, filterDueLeads, type SkipReason } from './leads.js';
 import { loadTemplates, getTemplateForLead, populateTemplate, isGenericTemplate } from './templates.js';
 import { getSignatureConfig, prepareEmailBody, type InlineAttachment } from './signature.js';
@@ -16,10 +17,10 @@ import {
   type DraftStatus,
   type TemplateType as LogTemplateType,
 } from './log.js';
-import type { Lead, EmailTemplate, Config } from './types.js';
+import type { Lead, EmailTemplate, Config, Mode } from './types.js';
 
 // Configuration from environment
-function getConfig(): Config {
+function getConfig(mode: Mode): Config {
   const tenantId = process.env.AZURE_TENANT_ID;
   const clientId = process.env.AZURE_CLIENT_ID;
 
@@ -36,8 +37,11 @@ function getConfig(): Config {
     tenantId,
     clientId,
     scopes,
+    mode,
     leadsCsvPath: process.env.LEADS_CSV_PATH || 'lead_db/Exospace_lead_tracker_v1.1.csv',
     templatesDocxPath: process.env.TEMPLATES_DOCX_PATH || 'lead_db/template_answer_leads.docx',
+    outreachTemplatePath: process.env.OUTREACH_TEMPLATE_PATH || 'lead_db/outreach_template.txt',
+    presentationPath: process.env.PRESENTATION_PATH || 'lead_db/ExoSpace_company_presentation.pptx',
     logPath: process.env.LOG_PATH || 'logs/drafts.csv',
     tokenCachePath: process.env.TOKEN_CACHE_PATH || '.cache/msal-tokens.json',
   };
@@ -193,12 +197,24 @@ function mapTemplateType(templateType: 'company_specific' | 'generic_fallback'):
  * Main entry point
  */
 async function main(): Promise<void> {
+  // Parse CLI arguments
+  const cliArgs = parseCliArgs();
+
+  // Handle help flag
+  if (cliArgs.help) {
+    displayHelp();
+    process.exit(0);
+  }
+
   console.log('\n🚀 Lead Follow-Up Agent for Exospace\n');
+
+  // Display mode information
+  displayModeInfo(cliArgs.mode);
 
   // Load configuration
   let config: Config;
   try {
-    config = getConfig();
+    config = getConfig(cliArgs.mode);
   } catch (error) {
     console.error('❌ Configuration error:', error instanceof Error ? error.message : 'Unknown error');
     console.error('\nPlease set the required environment variables:');
