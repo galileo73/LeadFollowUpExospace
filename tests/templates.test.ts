@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'path';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, rmSync } from 'fs';
 import {
   loadTemplates,
   loadTemplatesFromText,
@@ -11,6 +11,11 @@ import {
   isGenericTemplate,
   populateTemplate,
   getTemplateForLead,
+  parseOutreachTemplate,
+  loadOutreachTemplate,
+  getDefaultOutreachSubject,
+  isOutreachTemplate,
+  getOutreachTemplateForLead,
 } from '../src/templates.js';
 import type { Lead, EmailTemplate } from '../src/types.js';
 
@@ -427,6 +432,182 @@ Kind regards,
       const result = getTemplateForLead([], lead);
       assert.strictEqual(result.templateType, 'generic_fallback');
       assert.strictEqual(result.template.company, '__generic__');
+    });
+  });
+
+  describe('parseOutreachTemplate', () => {
+    it('should parse subject from Subject: line', () => {
+      const text = `Subject: Test Subject Line
+
+Body text here.`;
+      const template = parseOutreachTemplate(text);
+      assert.strictEqual(template.subject, 'Test Subject Line');
+    });
+
+    it('should use default subject when no Subject: line found', () => {
+      const text = `Just body text with no subject line.
+
+More body content.`;
+      const template = parseOutreachTemplate(text);
+      assert.strictEqual(template.subject, getDefaultOutreachSubject());
+    });
+
+    it('should extract body after Subject: line', () => {
+      const text = `Subject: My Subject
+
+First paragraph.
+
+Second paragraph.`;
+      const template = parseOutreachTemplate(text);
+      assert.strictEqual(template.body, `First paragraph.
+
+Second paragraph.`);
+    });
+
+    it('should handle Subject: line at start of file', () => {
+      const text = `Subject: Introduction Email
+
+Good afternoon,
+
+This is the body.`;
+      const template = parseOutreachTemplate(text);
+      assert.strictEqual(template.subject, 'Introduction Email');
+      assert.ok(template.body.startsWith('Good afternoon'));
+    });
+
+    it('should handle Subject: with leading/trailing whitespace', () => {
+      const text = `   Subject:   Trimmed Subject
+
+Body content.`;
+      const template = parseOutreachTemplate(text);
+      assert.strictEqual(template.subject, 'Trimmed Subject');
+    });
+
+    it('should be case-insensitive for Subject:', () => {
+      const text = `SUBJECT: Uppercase Subject
+
+Body.`;
+      const template = parseOutreachTemplate(text);
+      assert.strictEqual(template.subject, 'Uppercase Subject');
+    });
+
+    it('should preserve paragraph formatting', () => {
+      const text = `Subject: Test
+
+First paragraph with some text.
+
+Second paragraph here.
+
+Third paragraph.`;
+      const template = parseOutreachTemplate(text);
+      assert.ok(template.body.includes('\n\n'), 'Should preserve paragraph breaks');
+      const paragraphCount = (template.body.match(/\n\n/g) || []).length;
+      assert.ok(paragraphCount >= 2, 'Should have multiple paragraph breaks');
+    });
+
+    it('should handle template with placeholders', () => {
+      const text = `Subject: Introduction for {Company}
+
+Good afternoon{ContactNameGreeting},
+
+Welcome {Company}!
+
+Regards,
+{OwnerName}`;
+      const template = parseOutreachTemplate(text);
+      assert.strictEqual(template.subject, 'Introduction for {Company}');
+      assert.ok(template.body.includes('{ContactNameGreeting}'));
+      assert.ok(template.body.includes('{Company}'));
+      assert.ok(template.body.includes('{OwnerName}'));
+    });
+
+    it('should set company to __outreach__', () => {
+      const template = parseOutreachTemplate('Subject: Test\nBody');
+      assert.strictEqual(template.company, '__outreach__');
+    });
+  });
+
+  describe('loadOutreachTemplate', () => {
+    it('should load template from file', () => {
+      const templatePath = resolve(import.meta.dirname, 'fixtures/outreach-template.txt');
+      const template = loadOutreachTemplate(templatePath);
+      assert.strictEqual(template.company, '__outreach__');
+      assert.ok(template.subject.length > 0);
+      assert.ok(template.body.length > 0);
+    });
+
+    it('should parse subject from file', () => {
+      const templatePath = resolve(import.meta.dirname, 'fixtures/outreach-template.txt');
+      const template = loadOutreachTemplate(templatePath);
+      assert.strictEqual(template.subject, 'Introducing ExoSpace Engineering & Consulting');
+    });
+
+    it('should return fallback template when file not found', () => {
+      const template = loadOutreachTemplate('/nonexistent/path/template.txt');
+      assert.strictEqual(template.company, '__outreach__');
+      assert.strictEqual(template.subject, getDefaultOutreachSubject());
+      assert.ok(template.body.length > 0);
+    });
+  });
+
+  describe('getDefaultOutreachSubject', () => {
+    it('should return the default subject', () => {
+      const subject = getDefaultOutreachSubject();
+      assert.strictEqual(subject, 'Introducing ExoSpace Engineering & Consulting');
+    });
+  });
+
+  describe('isOutreachTemplate', () => {
+    it('should return true for outreach template', () => {
+      const template = parseOutreachTemplate('Subject: Test\nBody');
+      assert.strictEqual(isOutreachTemplate(template), true);
+    });
+
+    it('should return false for company-specific template', () => {
+      const template: EmailTemplate = {
+        company: 'SomeCompany',
+        subject: 'Test',
+        body: 'Body',
+      };
+      assert.strictEqual(isOutreachTemplate(template), false);
+    });
+
+    it('should return false for generic template', () => {
+      const template = getGenericTemplate();
+      assert.strictEqual(isOutreachTemplate(template), false);
+    });
+  });
+
+  describe('getOutreachTemplateForLead', () => {
+    it('should populate placeholders with lead data', () => {
+      const templatePath = resolve(import.meta.dirname, 'fixtures/outreach-template.txt');
+      const populated = getOutreachTemplateForLead(sampleLead, templatePath);
+      assert.ok(!populated.body.includes('{Company}'), 'Company placeholder should be replaced');
+      assert.ok(!populated.body.includes('{OwnerName}'), 'OwnerName placeholder should be replaced');
+      assert.ok(populated.body.includes('ClearSpace'), 'Should contain company name');
+      assert.ok(populated.body.includes('Gianluigi Rossi'), 'Should contain owner name');
+    });
+
+    it('should use "Good afternoon," when ContactName is missing', () => {
+      const templatePath = resolve(import.meta.dirname, 'fixtures/outreach-template.txt');
+      const leadWithoutName: Lead = { ...sampleLead, contactName: '' };
+      const populated = getOutreachTemplateForLead(leadWithoutName, templatePath);
+      // Should have "Good afternoon," without name (placeholder removed)
+      assert.ok(populated.body.includes('Good afternoon'));
+      assert.ok(!populated.body.includes('Good afternoon ,'), 'Should not have space before comma');
+    });
+
+    it('should use default subject when file not found', () => {
+      const populated = getOutreachTemplateForLead(sampleLead, '/nonexistent/path.txt');
+      assert.strictEqual(populated.subject, getDefaultOutreachSubject());
+    });
+
+    it('should use default path when not specified', () => {
+      // This will try to load from default path, which may or may not exist
+      const populated = getOutreachTemplateForLead(sampleLead);
+      // Just verify it doesn't throw and returns a template
+      assert.ok(populated.subject.length > 0);
+      assert.ok(populated.body.length > 0);
     });
   });
 });

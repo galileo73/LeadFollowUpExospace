@@ -307,3 +307,100 @@ export function getTemplateForLead(
     templateType: 'generic_fallback',
   };
 }
+
+// Default outreach subject
+const DEFAULT_OUTREACH_SUBJECT = 'Introducing ExoSpace Engineering & Consulting';
+
+// Outreach template company marker
+const OUTREACH_TEMPLATE_COMPANY = '__outreach__';
+
+/**
+ * Get the default outreach subject
+ */
+export function getDefaultOutreachSubject(): string {
+  return DEFAULT_OUTREACH_SUBJECT;
+}
+
+/**
+ * Parse outreach template from text
+ * Extracts subject from "Subject:" line and uses remaining text as body
+ * Falls back to default subject if no subject line found
+ */
+export function parseOutreachTemplate(text: string): EmailTemplate {
+  const lines = text.split('\n');
+  let subject = DEFAULT_OUTREACH_SUBJECT;
+  let subjectLineIndex = -1;
+
+  // Find the Subject: line
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line !== undefined) {
+      const trimmed = line.trim();
+      if (trimmed.toLowerCase().startsWith('subject:')) {
+        // Extract subject after "Subject:"
+        subject = trimmed.substring(8).trim();
+        subjectLineIndex = i;
+        break;
+      }
+    }
+  }
+
+  // Build body from remaining lines (excluding Subject: line)
+  let body: string;
+  if (subjectLineIndex >= 0) {
+    // Remove the Subject: line and join remaining lines
+    const bodyLines = lines.slice(subjectLineIndex + 1);
+    body = bodyLines.join('\n').trim();
+  } else {
+    // No subject line found, use entire text as body
+    body = text.trim();
+  }
+
+  return {
+    company: OUTREACH_TEMPLATE_COMPANY,
+    subject,
+    body,
+  };
+}
+
+/**
+ * Load outreach template from text file
+ * Returns parsed template with subject and body
+ */
+export function loadOutreachTemplate(filePath: string): EmailTemplate {
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    return parseOutreachTemplate(content);
+  } catch {
+    // Return default template if file cannot be loaded
+    return {
+      company: OUTREACH_TEMPLATE_COMPANY,
+      subject: DEFAULT_OUTREACH_SUBJECT,
+      body: `Good afternoon{ContactNameGreeting},
+
+I hope this email finds you well.
+
+I am reaching out to introduce ExoSpace Engineering & Consulting s.r.l. We would welcome the opportunity to discuss how we might support {Company} in achieving your technical objectives.
+
+Kind regards,
+{OwnerName}`,
+    };
+  }
+}
+
+/**
+ * Check if a template is an outreach template
+ */
+export function isOutreachTemplate(template: EmailTemplate): boolean {
+  return template.company === OUTREACH_TEMPLATE_COMPANY;
+}
+
+/**
+ * Get the outreach template for a lead
+ * Loads from file, parses, and populates with lead data
+ */
+export function getOutreachTemplateForLead(lead: Lead, templatePath?: string): EmailTemplate {
+  const path = templatePath ?? 'lead_db/outreach_template.txt';
+  const template = loadOutreachTemplate(path);
+  return populateTemplate(template, lead);
+}

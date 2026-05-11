@@ -1,0 +1,20 @@
+Subject: Introducing ExoSpace Engineering & Consulting
+
+Good afternoon{ContactNameGreeting},
+
+I hope this email finds you well.
+
+I am reaching out to introduce ExoSpace Engineering & Consulting s.r.l., a Swiss-based engineering firm specializing in space systems, defence, and advanced technology sectors. We provide high-end engineering consulting and project management services to support organizations like {Company} in achieving their technical objectives.
+
+Our core expertise includes:
+- Systems engineering and architecture
+- Space mission analysis and design
+- Defence systems development
+- Technical project management
+- Requirements engineering and verification
+
+I would welcome the opportunity to discuss how we might support your current or upcoming initiatives. Would you be available for a brief introductory call in the coming weeks?
+
+Kind regards,
+{OwnerName}
+ExoSpace Engineering & Consulting s.r.l.
