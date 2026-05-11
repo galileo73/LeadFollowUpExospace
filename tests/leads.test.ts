@@ -4,6 +4,7 @@ import { resolve } from 'path';
 import {
   loadLeads,
   filterDueLeads,
+  filterOutreachLeads,
   filterValidLeads,
   isDueForFollowUp,
 } from '../src/leads.js';
@@ -251,6 +252,205 @@ describe('leads', () => {
       // Sum of all skip reason counts should equal total skipped
       const totalByReason = Object.values(dueResult.summary.bySkipReason).reduce((a, b) => a + b, 0);
       assert.strictEqual(totalByReason, dueResult.summary.skippedCount);
+    });
+  });
+
+  describe('filterOutreachLeads', () => {
+    it('should return only leads with New or Qualified status', async () => {
+      const result = await loadLeads(fixturePath);
+      const valid = filterValidLeads(result.leads);
+      const outreachResult = filterOutreachLeads(valid);
+      // L-007 (New), L-008 (New) have valid email and New/Qualified status
+      // L-003 (New) has no email - skipped
+      // L-004 (New) has valid email but valid status
+      // L-006 (New) has invalid email - skipped
+      // L-001 (Contacted), L-002 (CONTACTED), L-005 (Closed Won) are not outreach statuses
+      assert.strictEqual(outreachResult.outreachLeads.length, 3);
+      assert.ok(outreachResult.outreachLeads.some(l => l.leadId === 'L-004'));
+      assert.ok(outreachResult.outreachLeads.some(l => l.leadId === 'L-007'));
+      assert.ok(outreachResult.outreachLeads.some(l => l.leadId === 'L-008'));
+    });
+
+    it('should return summary with counts', async () => {
+      const result = await loadLeads(fixturePath);
+      const valid = filterValidLeads(result.leads);
+      const outreachResult = filterOutreachLeads(valid);
+      assert.ok(outreachResult.summary.totalProcessed >= 0);
+      assert.ok(outreachResult.summary.outreachCount >= 0);
+      assert.ok(outreachResult.summary.skippedCount >= 0);
+    });
+
+    it('should track skip reasons', async () => {
+      const result = await loadLeads(fixturePath);
+      const valid = filterValidLeads(result.leads);
+      const outreachResult = filterOutreachLeads(valid);
+      assert.ok(outreachResult.summary.bySkipReason);
+
+      // Check specific skip reasons exist
+      const reasons = outreachResult.skipped.map(s => s.skipReason);
+      assert.ok(reasons.includes('missing_email'), 'Should have missing_email skips');
+      assert.ok(reasons.includes('invalid_email'), 'Should have invalid_email skips');
+      assert.ok(reasons.includes('not_outreach_status'), 'Should have not_outreach_status skips');
+    });
+
+    it('should skip leads with missing email', async () => {
+      const result = await loadLeads(fixturePath);
+      const valid = filterValidLeads(result.leads);
+      const outreachResult = filterOutreachLeads(valid);
+      const missingEmail = outreachResult.skipped.find(s => s.skipReason === 'missing_email');
+      assert.ok(missingEmail, 'Should skip leads without email');
+      assert.strictEqual(missingEmail?.leadId, 'L-003');
+    });
+
+    it('should skip leads with invalid email', async () => {
+      const result = await loadLeads(fixturePath);
+      const valid = filterValidLeads(result.leads);
+      const outreachResult = filterOutreachLeads(valid);
+      const invalidEmail = outreachResult.skipped.find(s => s.skipReason === 'invalid_email');
+      assert.ok(invalidEmail, 'Should skip leads with invalid email');
+      assert.strictEqual(invalidEmail?.leadId, 'L-006');
+    });
+
+    it('should skip leads with non-outreach status (Contacted, Closed Won, In Progress)', async () => {
+      const result = await loadLeads(fixturePath);
+      const valid = filterValidLeads(result.leads);
+      const outreachResult = filterOutreachLeads(valid);
+      const notOutreach = outreachResult.skipped.filter(s => s.skipReason === 'not_outreach_status');
+      assert.ok(notOutreach.length >= 3, 'Should skip leads with non-outreach status');
+      // L-001 (Contacted), L-002 (CONTACTED), L-005 (Closed Won)
+      assert.ok(notOutreach.some(s => s.leadId === 'L-001'));
+      assert.ok(notOutreach.some(s => s.leadId === 'L-002'));
+      assert.ok(notOutreach.some(s => s.leadId === 'L-005'));
+    });
+
+    it('should accept Qualified status', async () => {
+      // Create a lead with Qualified status
+      const qualifiedLead = {
+        leadId: 'TEST-Q',
+        company: 'Qualified Corp',
+        contactName: 'Test',
+        email: 'test@qualified.com',
+        phone: null,
+        country: 'USA',
+        segment: 'Tech',
+        serviceLine: 'Consulting',
+        source: 'Web',
+        leadScore: 80,
+        status: 'Qualified',
+        lastContactDate: null,
+        nextFollowUpDate: null,
+        daysToFollowUp: null,
+        owner: 'Test',
+        needPain: '',
+        nextAction: '',
+        priority: '',
+        lastMessageNotes: '',
+        website: '',
+        linkedIn: '',
+      };
+      const outreachResult = filterOutreachLeads([qualifiedLead]);
+      assert.strictEqual(outreachResult.outreachLeads.length, 1);
+      assert.strictEqual(outreachResult.outreachLeads[0]?.leadId, 'TEST-Q');
+    });
+
+    it('should accept New status', async () => {
+      const newLead = {
+        leadId: 'TEST-N',
+        company: 'New Corp',
+        contactName: 'Test',
+        email: 'test@new.com',
+        phone: null,
+        country: 'USA',
+        segment: 'Tech',
+        serviceLine: 'Consulting',
+        source: 'Web',
+        leadScore: 50,
+        status: 'New',
+        lastContactDate: null,
+        nextFollowUpDate: null,
+        daysToFollowUp: null,
+        owner: 'Test',
+        needPain: '',
+        nextAction: '',
+        priority: '',
+        lastMessageNotes: '',
+        website: '',
+        linkedIn: '',
+      };
+      const outreachResult = filterOutreachLeads([newLead]);
+      assert.strictEqual(outreachResult.outreachLeads.length, 1);
+      assert.strictEqual(outreachResult.outreachLeads[0]?.leadId, 'TEST-N');
+    });
+
+    it('should be case-insensitive for status (NEW, QUALIFIED)', async () => {
+      const uppercaseLead = {
+        leadId: 'TEST-UC',
+        company: 'Uppercase Corp',
+        contactName: 'Test',
+        email: 'test@upper.com',
+        phone: null,
+        country: 'USA',
+        segment: 'Tech',
+        serviceLine: 'Consulting',
+        source: 'Web',
+        leadScore: 50,
+        status: 'NEW',
+        lastContactDate: null,
+        nextFollowUpDate: null,
+        daysToFollowUp: null,
+        owner: 'Test',
+        needPain: '',
+        nextAction: '',
+        priority: '',
+        lastMessageNotes: '',
+        website: '',
+        linkedIn: '',
+      };
+      const outreachResult = filterOutreachLeads([uppercaseLead]);
+      assert.strictEqual(outreachResult.outreachLeads.length, 1);
+      assert.strictEqual(outreachResult.outreachLeads[0]?.leadId, 'TEST-UC');
+    });
+
+    it('should count skip reasons in summary', async () => {
+      const result = await loadLeads(fixturePath);
+      const valid = filterValidLeads(result.leads);
+      const outreachResult = filterOutreachLeads(valid);
+
+      // Sum of all skip reason counts should equal total skipped
+      const totalByReason = Object.values(outreachResult.summary.bySkipReason).reduce((a, b) => a + b, 0);
+      assert.strictEqual(totalByReason, outreachResult.summary.skippedCount);
+    });
+
+    it('should not use daysToFollowUp for filtering (outreach ignores due date)', async () => {
+      // Outreach should NOT filter by daysToFollowUp like follow-up does
+      // A lead with daysToFollowUp = 100 should still be included if status is New/Qualified
+      const futureLead = {
+        leadId: 'TEST-FUTURE',
+        company: 'Future Corp',
+        contactName: 'Test',
+        email: 'test@future.com',
+        phone: null,
+        country: 'USA',
+        segment: 'Tech',
+        serviceLine: 'Consulting',
+        source: 'Web',
+        leadScore: 50,
+        status: 'New',
+        lastContactDate: null,
+        nextFollowUpDate: null,
+        daysToFollowUp: 100, // Far in the future
+        owner: 'Test',
+        needPain: '',
+        nextAction: '',
+        priority: '',
+        lastMessageNotes: '',
+        website: '',
+        linkedIn: '',
+      };
+      const outreachResult = filterOutreachLeads([futureLead]);
+      // Should be included despite daysToFollowUp > 0
+      assert.strictEqual(outreachResult.outreachLeads.length, 1);
+      assert.strictEqual(outreachResult.outreachLeads[0]?.leadId, 'TEST-FUTURE');
     });
   });
 

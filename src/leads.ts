@@ -9,7 +9,8 @@ export type SkipReason =
   | 'inactive_status'
   | 'not_due'
   | 'invalid_date'
-  | 'missing_lead_id';
+  | 'missing_lead_id'
+  | 'not_outreach_status';
 
 export interface SkippedLead {
   readonly leadId: string | null;
@@ -53,11 +54,31 @@ export interface DueLeadSummary {
   readonly bySkipReason: Record<SkipReason, number>;
 }
 
+// Outreach lead result
+export interface OutreachLeadResult {
+  readonly outreachLeads: readonly Lead[];
+  readonly skipped: readonly SkippedLead[];
+  readonly summary: OutreachLeadSummary;
+}
+
+export interface OutreachLeadSummary {
+  readonly totalProcessed: number;
+  readonly outreachCount: number;
+  readonly skippedCount: number;
+  readonly bySkipReason: Record<SkipReason, number>;
+}
+
 // Active lead statuses (normalized to lowercase)
 const ACTIVE_STATUSES = new Set([
   'new',
   'contacted',
   'in progress',
+  'qualified',
+]);
+
+// Outreach lead statuses (normalized to lowercase) - for first contact with presentation
+const OUTREACH_STATUSES = new Set([
+  'new',
   'qualified',
 ]);
 
@@ -121,6 +142,10 @@ function isActiveStatus(status: string): boolean {
   return ACTIVE_STATUSES.has(normalizeStatus(status));
 }
 
+function isOutreachStatus(status: string): boolean {
+  return OUTREACH_STATUSES.has(normalizeStatus(status));
+}
+
 export async function loadLeads(filePath: string): Promise<ParseResult> {
   const content = readFileSync(filePath, 'utf-8');
 
@@ -162,6 +187,7 @@ export async function loadLeads(filePath: string): Promise<ParseResult> {
     not_due: 0,
     invalid_date: 0,
     missing_lead_id: 0,
+    not_outreach_status: 0,
   };
 
   for (let i = 0; i < records.length; i++) {
@@ -246,6 +272,7 @@ export function filterDueLeads(leads: readonly Lead[]): DueLeadResult {
     not_due: 0,
     invalid_date: 0,
     missing_lead_id: 0,
+    not_outreach_status: 0,
   };
 
   for (const lead of leads) {
@@ -307,6 +334,72 @@ export function filterDueLeads(leads: readonly Lead[]): DueLeadResult {
     summary: {
       totalProcessed: leads.length,
       dueCount: dueLeads.length,
+      skippedCount: skipped.length,
+      bySkipReason,
+    },
+  };
+}
+
+export function filterOutreachLeads(leads: readonly Lead[]): OutreachLeadResult {
+  const outreachLeads: Lead[] = [];
+  const skipped: SkippedLead[] = [];
+  const bySkipReason: Record<SkipReason, number> = {
+    missing_email: 0,
+    invalid_email: 0,
+    inactive_status: 0,
+    not_due: 0,
+    invalid_date: 0,
+    missing_lead_id: 0,
+    not_outreach_status: 0,
+  };
+
+  for (const lead of leads) {
+    // Check missing email
+    if (lead.email === null) {
+      skipped.push({
+        leadId: lead.leadId,
+        company: lead.company,
+        skipReason: 'missing_email',
+        rawRow: {},
+      });
+      bySkipReason.missing_email++;
+      continue;
+    }
+
+    // Check invalid email
+    if (!isValidEmail(lead.email)) {
+      skipped.push({
+        leadId: lead.leadId,
+        company: lead.company,
+        skipReason: 'invalid_email',
+        rawRow: {},
+      });
+      bySkipReason.invalid_email++;
+      continue;
+    }
+
+    // Check outreach status (New or Qualified only)
+    if (!isOutreachStatus(lead.status)) {
+      skipped.push({
+        leadId: lead.leadId,
+        company: lead.company,
+        skipReason: 'not_outreach_status',
+        rawRow: {},
+      });
+      bySkipReason.not_outreach_status++;
+      continue;
+    }
+
+    // Lead is valid for outreach
+    outreachLeads.push(lead);
+  }
+
+  return {
+    outreachLeads,
+    skipped,
+    summary: {
+      totalProcessed: leads.length,
+      outreachCount: outreachLeads.length,
       skippedCount: skipped.length,
       bySkipReason,
     },
