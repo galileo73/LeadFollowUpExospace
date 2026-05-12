@@ -27,6 +27,7 @@ export type DraftStatus =
 export type TemplateType =
   | 'company_specific'
   | 'generic_fallback'
+  | 'outreach'
   | 'none';
 
 // CSV header row

@@ -1,11 +1,17 @@
 import 'dotenv/config';
 import * as readline from 'readline';
 import { parseCliArgs, displayHelp, displayModeInfo } from './cli.js';
-import { loadLeads, filterDueLeads, type SkipReason } from './leads.js';
-import { loadTemplates, getTemplateForLead, populateTemplate, isGenericTemplate } from './templates.js';
+import { loadLeads, filterDueLeads, filterOutreachLeads, type SkipReason, type SkippedLead } from './leads.js';
+import { loadTemplates, getTemplateForLead, populateTemplate, isGenericTemplate, loadOutreachTemplate, getOutreachTemplateForLead } from './templates.js';
 import { getSignatureConfig, prepareEmailBody, type InlineAttachment } from './signature.js';
 import { createMsalClient, getAccessToken, hasCachedAccount } from './auth.js';
-import { createGraphClient, createDraftsBatch, buildDraftRequest, validateEmail, type GraphDraftRequest, type DraftResult } from './drafts.js';
+import { createGraphClient, createDraftsBatch, buildDraftRequest, validateEmail, type GraphDraftRequest, type DraftResult, type EmailAttachment } from './drafts.js';
+import {
+  loadPresentationAttachment,
+  validatePresentationFile,
+  getPresentationInfo,
+  type FileAttachment,
+} from './attachments.js';
 import {
   generateRunId,
   initLogFile,
@@ -51,13 +57,13 @@ function getConfig(mode: Mode): Config {
 interface PreparedDraft {
   lead: Lead;
   template: EmailTemplate;
-  templateType: 'company_specific' | 'generic_fallback';
+  templateType: 'company_specific' | 'generic_fallback' | 'outreach';
   subject: string;
   htmlBody: string;
-  attachments: InlineAttachment[];
+  attachments: EmailAttachment[];
 }
 
-// Interface for dry-run summary
+// Interface for dry-run summary (follow-up mode)
 interface DryRunSummary {
   readonly totalLeads: number;
   readonly dueLeads: number;
@@ -65,6 +71,19 @@ interface DryRunSummary {
   readonly bySkipReason: Record<SkipReason, number>;
   readonly templatesFound: number;
   readonly usingFallback: boolean;
+}
+
+// Interface for outreach dry-run summary
+interface OutreachDryRunSummary {
+  readonly mode: 'outreach';
+  readonly totalLeads: number;
+  readonly eligibleLeads: number;
+  readonly skippedLeads: number;
+  readonly bySkipReason: Record<SkipReason, number>;
+  readonly presentationName: string;
+  readonly presentationSize: string;
+  readonly presentationError: string | null;
+  readonly signatureEnabled: boolean;
 }
 
 /**
@@ -138,6 +157,67 @@ function displayDryRunSummary(summary: DryRunSummary, leads: readonly Lead[], te
 }
 
 /**
+ * Display dry-run summary for outreach mode
+ */
+function displayOutreachDryRunSummary(
+  summary: OutreachDryRunSummary,
+  leads: readonly Lead[]
+): void {
+  console.log('\n' + '='.repeat(60));
+  console.log('DRY RUN SUMMARY');
+  console.log('='.repeat(60));
+
+  console.log(`\n📋 Mode: outreach`);
+
+  console.log(`\n📊 Lead Analysis:`);
+  console.log(`   Total leads loaded:       ${summary.totalLeads}`);
+  console.log(`   Eligible outreach leads:   ${summary.eligibleLeads}`);
+  console.log(`   Leads skipped:            ${summary.skippedLeads}`);
+
+  if (summary.skippedLeads > 0) {
+    console.log('\n   Skip reasons:');
+    for (const [reason, count] of Object.entries(summary.bySkipReason)) {
+      if (count > 0) {
+        console.log(`     - ${reason.replace(/_/g, ' ')}: ${count}`);
+      }
+    }
+  }
+
+  console.log(`\n📎 Presentation Attachment:`);
+  if (summary.presentationError) {
+    console.log(`   ❌ Error: ${summary.presentationError}`);
+  } else {
+    console.log(`   Name: ${summary.presentationName}`);
+    console.log(`   Size: ${summary.presentationSize}`);
+  }
+
+  console.log(`\n✉️  Signature:`);
+  console.log(`   ${summary.signatureEnabled ? '✅ Enabled' : '❌ Disabled'}`);
+
+  if (leads.length > 0) {
+    console.log(`\n📋 Eligible outreach leads (${leads.length}):`);
+    console.log('-'.repeat(60));
+
+    const maxDisplay = 10;
+    for (let i = 0; i < Math.min(leads.length, maxDisplay); i++) {
+      const lead = leads[i];
+      if (!lead) continue;
+
+      console.log(`   ${i + 1}. ${lead.company}`);
+      console.log(`      ID: ${lead.leadId}`);
+      console.log(`      Email: ${lead.email}`);
+      console.log(`      Contact: ${lead.contactName || 'N/A'}`);
+    }
+
+    if (leads.length > maxDisplay) {
+      console.log(`   ... and ${leads.length - maxDisplay} more`);
+    }
+  }
+
+  console.log('\n' + '='.repeat(60));
+}
+
+/**
  * Display final summary after draft creation
  */
 function displayFinalSummary(results: readonly DraftResult[], skippedCount: number): void {
@@ -181,6 +261,8 @@ function mapSkipReasonToStatus(reason: SkipReason): DraftStatus {
       return 'skipped_inactive_status';
     case 'not_due':
       return 'skipped_not_due';
+    case 'not_outreach_status':
+      return 'skipped_inactive_status'; // Map to same status as inactive
     default:
       return 'skipped_no_email';
   }
@@ -189,7 +271,7 @@ function mapSkipReasonToStatus(reason: SkipReason): DraftStatus {
 /**
  * Map template type for logging
  */
-function mapTemplateType(templateType: 'company_specific' | 'generic_fallback'): LogTemplateType {
+function mapTemplateType(templateType: 'company_specific' | 'generic_fallback' | 'outreach'): LogTemplateType {
   return templateType;
 }
 
@@ -243,9 +325,29 @@ async function main(): Promise<void> {
     console.log(`   ⚠️  ${parseResult.summary.malformedCount} malformed rows skipped`);
   }
 
+  // Branch based on mode
+  if (cliArgs.mode === 'outreach') {
+    await runOutreachMode(config, parseResult.leads, parseResult.summary.validLeads, runId);
+  } else {
+    await runFollowUpMode(config, parseResult.leads, parseResult.summary.validLeads, runId);
+  }
+
+  // Exit cleanly
+  process.exit(0);
+}
+
+/**
+ * Run follow-up mode (existing workflow)
+ */
+async function runFollowUpMode(
+  config: Config,
+  leads: readonly Lead[],
+  totalLeads: number,
+  runId: string
+): Promise<void> {
   // Step 2: Filter leads due for follow-up
   console.log('\n🔍 Filtering leads due for follow-up...');
-  const dueResult = filterDueLeads(parseResult.leads);
+  const dueResult = filterDueLeads(leads);
 
   console.log(`   ${dueResult.summary.dueCount} leads due for follow-up`);
   console.log(`   ${dueResult.summary.skippedCount} leads skipped`);
@@ -287,7 +389,7 @@ async function main(): Promise<void> {
 
   // Step 4: Display dry-run summary
   const dryRunSummary: DryRunSummary = {
-    totalLeads: parseResult.summary.validLeads,
+    totalLeads,
     dueLeads: dueResult.summary.dueCount,
     skippedLeads: dueResult.summary.skippedCount,
     bySkipReason: dueResult.summary.bySkipReason,
@@ -378,6 +480,191 @@ async function main(): Promise<void> {
   }
 
   // Step 10: Log results
+  await logResultsAndDisplaySummary(config, results, preparedDrafts, dueResult.skipped, runId);
+}
+
+/**
+ * Run outreach mode (new workflow with presentation attachment)
+ */
+async function runOutreachMode(
+  config: Config,
+  leads: readonly Lead[],
+  totalLeads: number,
+  runId: string
+): Promise<void> {
+  // Step 2: Validate presentation file BEFORE filtering leads
+  // This ensures we fail fast if the presentation is missing or invalid
+  console.log('\n📎 Validating presentation attachment...');
+  const presentationError = validatePresentationFile(config.presentationPath);
+
+  if (presentationError) {
+    console.log(`   ❌ ${presentationError}`);
+    console.log('\n❌ Cannot proceed without a valid presentation file.');
+    console.log('   Please check the PRESENTATION_PATH environment variable.\n');
+    process.exit(1);
+  }
+
+  const presentationInfo = getPresentationInfo(config.presentationPath);
+  console.log(`   ✅ Presentation found: ${config.presentationPath.split(/[/\\]/).pop()}`);
+  console.log(`   Size: ${presentationInfo.sizeMB ?? 'unknown'} MB`);
+
+  // Step 3: Filter outreach leads
+  console.log('\n🔍 Filtering outreach leads (New or Qualified status)...');
+  const outreachResult = filterOutreachLeads(leads);
+
+  console.log(`   ${outreachResult.summary.outreachCount} eligible outreach leads`);
+  console.log(`   ${outreachResult.summary.skippedCount} leads skipped`);
+
+  // If no eligible leads, exit cleanly
+  if (outreachResult.outreachLeads.length === 0) {
+    console.log('\n✅ No leads are eligible for outreach.');
+    console.log('   Nothing to do. Exiting.\n');
+    process.exit(0);
+  }
+
+  // Step 4: Load outreach template
+  console.log('\n📄 Loading outreach template...');
+  const outreachTemplate = loadOutreachTemplate(config.outreachTemplatePath);
+  console.log(`   Subject: ${outreachTemplate.subject}`);
+
+  // Step 5: Get signature config
+  const signatureConfig = getSignatureConfig();
+
+  // Step 6: Display dry-run summary
+  const dryRunSummary: OutreachDryRunSummary = {
+    mode: 'outreach',
+    totalLeads,
+    eligibleLeads: outreachResult.summary.outreachCount,
+    skippedLeads: outreachResult.summary.skippedCount,
+    bySkipReason: outreachResult.summary.bySkipReason,
+    presentationName: config.presentationPath.split(/[/\\]/).pop() ?? 'presentation.pptx',
+    presentationSize: `${presentationInfo.sizeMB ?? 'unknown'} MB`,
+    presentationError: null,
+    signatureEnabled: signatureConfig.enabled,
+  };
+
+  displayOutreachDryRunSummary(dryRunSummary, outreachResult.outreachLeads);
+
+  // Step 7: Ask for confirmation before proceeding
+  console.log('\n⚠️  This will authenticate with Microsoft Graph and create draft emails.');
+  console.log('   Each draft will include:');
+  console.log('   - Outreach email body');
+  console.log('   - Signature (if enabled)');
+  console.log('   - PPTX presentation attachment');
+  console.log('   Drafts will NOT be sent automatically.\n');
+
+  const confirmed = await askConfirmation('Do you want to proceed?');
+
+  if (!confirmed) {
+    console.log('\n❌ Cancelled by user. No authentication or draft creation performed.');
+    console.log('   Exiting.\n');
+    process.exit(0);
+  }
+
+  // Step 8: Authenticate
+  console.log('\n🔐 Authenticating with Microsoft Graph...');
+
+  const msalClient = createMsalClient(config);
+  let accessToken: string;
+
+  try {
+    accessToken = await getAccessToken(msalClient, config);
+  } catch (error) {
+    console.error('❌ Authentication failed:', error instanceof Error ? error.message : 'Unknown error');
+    process.exit(1);
+  }
+
+  // Step 9: Load presentation attachment
+  console.log('\n📎 Loading presentation attachment...');
+  const presentationResult = loadPresentationAttachment(config.presentationPath);
+
+  if (presentationResult.error || !presentationResult.attachment) {
+    console.error(`   ❌ ${presentationResult.error ?? 'Unknown error loading presentation'}`);
+    console.log('\n❌ Cannot create drafts without a valid presentation file.');
+    console.log('   Exiting.\n');
+    process.exit(1);
+  }
+
+  if (presentationResult.warning) {
+    console.log(`   ⚠️  ${presentationResult.warning}`);
+  }
+
+  console.log(`   ✅ Loaded: ${presentationResult.attachment.name}`);
+
+  // Step 10: Prepare drafts
+  console.log('\n📝 Preparing email drafts...');
+
+  const preparedDrafts: PreparedDraft[] = [];
+
+  for (const lead of outreachResult.outreachLeads) {
+    if (!lead) continue;
+
+    // Get populated outreach template for this lead
+    const populatedTemplate = getOutreachTemplateForLead(lead, config.outreachTemplatePath);
+
+    // Prepare email body with signature
+    const { htmlBody, attachments: signatureAttachments } = await prepareEmailBody(populatedTemplate.body, signatureConfig);
+
+    // Combine signature attachments with presentation attachment
+    const allAttachments: EmailAttachment[] = [
+      ...signatureAttachments,
+      presentationResult.attachment,
+    ];
+
+    preparedDrafts.push({
+      lead,
+      template: populatedTemplate,
+      templateType: 'outreach',
+      subject: populatedTemplate.subject,
+      htmlBody,
+      attachments: allAttachments,
+    });
+  }
+
+  console.log(`   Prepared ${preparedDrafts.length} draft(s)`);
+
+  // Step 11: Ask for final confirmation before creating drafts
+  console.log(`\n⚠️  About to create ${preparedDrafts.length} draft email(s) in your Outlook account.`);
+
+  const finalConfirmed = await askConfirmation('Create these drafts?');
+
+  if (!finalConfirmed) {
+    console.log('\n❌ Cancelled by user. No drafts created.');
+    console.log('   Exiting.\n');
+    process.exit(0);
+  }
+
+  // Step 12: Create drafts via Microsoft Graph
+  console.log('\n📧 Creating draft emails...');
+
+  const graphClient = createGraphClient(accessToken);
+  const draftRequests: GraphDraftRequest[] = preparedDrafts.map(draft =>
+    buildDraftRequest(draft.lead, draft.subject, draft.htmlBody, draft.attachments)
+  );
+
+  let results: DraftResult[];
+  try {
+    results = await createDraftsBatch(graphClient, draftRequests);
+  } catch (error) {
+    console.error('❌ Draft creation failed:', error instanceof Error ? error.message : 'Unknown error');
+    process.exit(1);
+  }
+
+  // Step 13: Log results
+  await logResultsAndDisplaySummary(config, results, preparedDrafts, outreachResult.skipped, runId);
+}
+
+/**
+ * Log results and display final summary (shared between modes)
+ */
+async function logResultsAndDisplaySummary(
+  config: Config,
+  results: readonly DraftResult[],
+  preparedDrafts: readonly PreparedDraft[],
+  skippedLeads: readonly SkippedLead[],
+  runId: string
+): Promise<void> {
+  // Log results
   console.log('\n📋 Logging results...');
 
   initLogFile(config.logPath);
@@ -419,7 +706,7 @@ async function main(): Promise<void> {
   }
 
   // Log skipped leads
-  for (const skipped of dueResult.skipped) {
+  for (const skipped of skippedLeads) {
     logEntries.push(
       createSkippedLogEntry(
         runId,
@@ -435,11 +722,8 @@ async function main(): Promise<void> {
   appendLogBatch(config.logPath, logEntries);
   console.log(`   Logged ${logEntries.length} entries to ${config.logPath}`);
 
-  // Step 11: Display final summary
-  displayFinalSummary(results, dueResult.skipped.length);
-
-  // Exit cleanly
-  process.exit(0);
+  // Display final summary
+  displayFinalSummary(results, skippedLeads.length);
 }
 
 // Run the main function
