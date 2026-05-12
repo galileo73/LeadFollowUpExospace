@@ -27,5 +27,8 @@ Thumbs.db
 ~$*.xls
 ~$*.docx
 
+# Lead database generated files
+lead_db/*.pptx
+
 # Claude
 Claude.md
