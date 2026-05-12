@@ -8,9 +8,11 @@ import {
   buildDraftRequest,
   type GraphDraftRequest,
   type DraftResult,
+  type EmailAttachment,
 } from '../src/drafts.js';
 import type { Lead } from '../src/types.js';
 import type { InlineAttachment } from '../src/signature.js';
+import type { FileAttachment } from '../src/attachments.js';
 
 const testDir = resolve(import.meta.dirname, 'fixtures', 'drafts-test');
 
@@ -66,6 +68,15 @@ const testAttachment: InlineAttachment = {
   contentBytes: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
   isInline: true,
   contentId: 'logo@signature',
+};
+
+// Test PPTX file attachment (regular, not inline)
+const testPptxAttachment: FileAttachment = {
+  '@odata.type': '#microsoft.graph.fileAttachment',
+  name: 'presentation.pptx',
+  contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  contentBytes: 'UEsDBBQABgAIAAAAIQ==',
+  // Note: isInline is intentionally omitted for regular file attachments
 };
 
 // Helper to clean up test directory
@@ -161,7 +172,7 @@ describe('drafts', () => {
       assert.ok(request.attachments, 'Should have attachments');
       assert.strictEqual(request.attachments?.length, 1);
       assert.strictEqual(request.attachments?.[0]?.name, 'logo.png');
-      assert.strictEqual(request.attachments?.[0]?.contentId, 'logo@signature');
+      assert.strictEqual((request.attachments?.[0] as InlineAttachment).contentId, 'logo@signature');
     });
 
     it('should preserve lead data in request', () => {
@@ -315,6 +326,117 @@ describe('drafts', () => {
       // Whitespace-only contactName should be trimmed and fall back to company
       const recipientName = lead.contactName?.trim() || lead.company;
       assert.strictEqual(recipientName, 'Acme Corp');
+    });
+  });
+
+  describe('PPTX attachment support', () => {
+    it('should support only inline logo attachment (backward compatible)', () => {
+      const subject = 'Follow-up: Acme Corp';
+      const htmlBody = '<p>Hello John Doe,</p>';
+      const attachments: readonly InlineAttachment[] = [testAttachment];
+
+      const request = buildDraftRequest(testLead, subject, htmlBody, attachments);
+
+      assert.ok(request.attachments, 'Should have attachments');
+      assert.strictEqual(request.attachments?.length, 1);
+      assert.strictEqual(request.attachments?.[0]?.name, 'logo.png');
+      // Verify it's an inline attachment
+      assert.strictEqual((request.attachments?.[0] as InlineAttachment).isInline, true);
+      assert.strictEqual((request.attachments?.[0] as InlineAttachment).contentId, 'logo@signature');
+    });
+
+    it('should support both inline logo and PPTX file attachments', () => {
+      const subject = 'Follow-up: Acme Corp';
+      const htmlBody = '<p>Hello John Doe,</p>';
+      const attachments: readonly EmailAttachment[] = [testAttachment, testPptxAttachment];
+
+      const request = buildDraftRequest(testLead, subject, htmlBody, attachments);
+
+      assert.ok(request.attachments, 'Should have attachments');
+      assert.strictEqual(request.attachments?.length, 2);
+
+      // First attachment should be inline logo
+      const inlineAtt = request.attachments?.[0] as InlineAttachment;
+      assert.strictEqual(inlineAtt.name, 'logo.png');
+      assert.strictEqual(inlineAtt.isInline, true);
+      assert.strictEqual(inlineAtt.contentId, 'logo@signature');
+
+      // Second attachment should be PPTX file (not inline)
+      const fileAtt = request.attachments?.[1] as FileAttachment;
+      assert.strictEqual(fileAtt.name, 'presentation.pptx');
+      assert.strictEqual(fileAtt.contentType, 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+      assert.strictEqual(fileAtt.contentBytes, 'UEsDBBQABgAIAAAAIQ==');
+      // PPTX attachments do NOT have isInline property
+      assert.strictEqual('isInline' in fileAtt, false);
+      assert.strictEqual('contentId' in fileAtt, false);
+    });
+
+    it('should support only PPTX attachment without inline logo', () => {
+      const subject = 'Follow-up: Acme Corp';
+      const htmlBody = '<p>Hello John Doe,</p>';
+      const attachments: readonly FileAttachment[] = [testPptxAttachment];
+
+      const request = buildDraftRequest(testLead, subject, htmlBody, attachments);
+
+      assert.ok(request.attachments, 'Should have attachments');
+      assert.strictEqual(request.attachments?.length, 1);
+
+      const fileAtt = request.attachments?.[0] as FileAttachment;
+      assert.strictEqual(fileAtt.name, 'presentation.pptx');
+      assert.strictEqual(fileAtt.contentType, 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+      // PPTX attachment is NOT inline
+      assert.strictEqual('isInline' in fileAtt, false);
+      assert.strictEqual('contentId' in fileAtt, false);
+    });
+
+    it('should preserve backward compatibility with existing InlineAttachment[] type', () => {
+      // This test ensures existing code using InlineAttachment[] still works
+      const inlineAttachments: readonly InlineAttachment[] = [testAttachment];
+
+      const request: GraphDraftRequest = {
+        lead: testLead,
+        subject: 'Test',
+        htmlBody: '<p>Test</p>',
+        attachments: inlineAttachments,
+      };
+
+      assert.strictEqual(request.attachments?.length, 1);
+      assert.strictEqual(request.attachments?.[0]?.name, 'logo.png');
+    });
+
+    it('should allow mixed attachment types in GraphDraftRequest', () => {
+      // This tests that EmailAttachment union type works correctly
+      const mixedAttachments: readonly EmailAttachment[] = [
+        testAttachment,      // InlineAttachment
+        testPptxAttachment,  // FileAttachment
+      ];
+
+      const request: GraphDraftRequest = {
+        lead: testLead,
+        subject: 'Test',
+        htmlBody: '<p>Test</p>',
+        attachments: mixedAttachments,
+      };
+
+      assert.strictEqual(request.attachments?.length, 2);
+    });
+
+    it('should correctly identify inline vs file attachments by properties', () => {
+      const attachments: readonly EmailAttachment[] = [testAttachment, testPptxAttachment];
+
+      const request = buildDraftRequest(testLead, 'Test', '<p>Test</p>', attachments);
+
+      // Check inline attachment has required properties
+      const inline = request.attachments?.[0];
+      assert.ok(inline, 'First attachment should exist');
+      assert.strictEqual('isInline' in inline && inline.isInline, true);
+      assert.strictEqual('contentId' in inline, true);
+
+      // Check file attachment lacks inline properties
+      const file = request.attachments?.[1];
+      assert.ok(file, 'Second attachment should exist');
+      assert.strictEqual('isInline' in file, false);
+      assert.strictEqual('contentId' in file, false);
     });
   });
 });

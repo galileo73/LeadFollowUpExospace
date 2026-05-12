@@ -1,5 +1,6 @@
 import { Client } from '@microsoft/microsoft-graph-client';
 import type { InlineAttachment } from './signature.js';
+import type { FileAttachment } from './attachments.js';
 import type { Lead, EmailTemplate } from './types.js';
 
 // Email validation regex
@@ -9,12 +10,15 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 1000;
 
+// Union type for all attachment types
+export type EmailAttachment = InlineAttachment | FileAttachment;
+
 // Draft request for creating a draft email
 export interface GraphDraftRequest {
   readonly lead: Lead;
   readonly subject: string;
   readonly htmlBody: string;
-  readonly attachments?: readonly InlineAttachment[];
+  readonly attachments?: readonly EmailAttachment[];
 }
 
 // Result of creating a draft
@@ -46,7 +50,7 @@ interface MessageRequestBody {
     name: string;
     contentType: string;
     contentBytes: string;
-    isInline: boolean;
+    isInline?: boolean;
     contentId?: string;
   }>;
 }
@@ -153,6 +157,13 @@ async function withRetry<T>(
 }
 
 /**
+ * Check if an attachment is an inline attachment
+ */
+function isInlineAttachment(att: EmailAttachment): att is InlineAttachment {
+  return 'isInline' in att && att.isInline === true;
+}
+
+/**
  * Create a single draft email via Microsoft Graph API
  */
 export async function createDraft(
@@ -160,7 +171,7 @@ export async function createDraft(
   toEmail: string,
   subject: string,
   htmlBody: string,
-  attachments?: readonly InlineAttachment[],
+  attachments?: readonly EmailAttachment[],
   recipientName?: string
 ): Promise<string> {
   // Validate email before API call
@@ -185,16 +196,29 @@ export async function createDraft(
     ],
   };
 
-  // Add inline attachments if provided
+  // Add attachments if provided (supports both inline and regular file attachments)
   if (attachments && attachments.length > 0) {
-    messageBody.attachments = attachments.map((att) => ({
-      '@odata.type': '#microsoft.graph.fileAttachment',
-      name: att.name,
-      contentType: att.contentType,
-      contentBytes: att.contentBytes,
-      isInline: att.isInline,
-      contentId: att.contentId,
-    }));
+    messageBody.attachments = attachments.map((att) => {
+      // Inline attachments have isInline: true and contentId
+      if (isInlineAttachment(att)) {
+        return {
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          name: att.name,
+          contentType: att.contentType,
+          contentBytes: att.contentBytes,
+          isInline: true,
+          contentId: att.contentId,
+        };
+      }
+      // Regular file attachments (PPTX, etc.) - isInline omitted/defaults to false
+      return {
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: att.name,
+        contentType: att.contentType,
+        contentBytes: att.contentBytes,
+        // isInline and contentId omitted for regular attachments
+      };
+    });
   }
 
   // Create draft with retry logic
@@ -337,7 +361,7 @@ export function buildDraftRequest(
   lead: Lead,
   subject: string,
   htmlBody: string,
-  attachments?: readonly InlineAttachment[]
+  attachments?: readonly EmailAttachment[]
 ): GraphDraftRequest {
   if (attachments) {
     return {
